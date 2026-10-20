@@ -1,0 +1,18 @@
+# 运行时状态与凭证——永远不要提交
+state/
+logs/
+media/
+inbox/
+outbox/
+processing/
+routing_pending/
+done/
+qr/
+config.json
+proxy.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+vendor_pkgs/

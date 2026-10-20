@@ -1,0 +1,2 @@
+pycryptodome>=3.20
+qrcode[pil]>=7.4
