@@ -9,6 +9,8 @@ routing_pending/
 done/
 qr/
 config.json
+fastlane_config.json
+escalated/
 proxy.env
 
 # Python

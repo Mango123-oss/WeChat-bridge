@@ -44,6 +44,21 @@ echo '{"to_user_id": "<对方的 ilink user id>", "text": "你好"}' > outbox/he
 # 带媒体：再加 "media_path": "/abs/path/pic.jpg"（text 作配文，先发配文再发媒体，上限 100MB）
 ```
 
+## 快速通道（可选，强烈推荐）
+
+默认分拣靠 Agent 轮询 inbox/，简单问题也要等 Agent 冷启动，实测端到端可达 90 秒以上。`fastlane.py` 是桥的「唯一前门」：0.3 秒内认领每条入站消息，简单问答由一个免费快模型直答（实测约 3 秒），复杂任务转入 `escalated/` 交主 Agent 处理并先发即时回执。
+
+```bash
+cp fastlane_config.example.json fastlane_config.json   # 填入你的 API Key（0600，勿提交）
+chmod 600 fastlane_config.json
+sudo cp wechat-fastlane.service.example /etc/systemd/system/wechat-fastlane.service
+sudo systemctl daemon-reload && sudo systemctl enable --now wechat-fastlane
+```
+
+- 配置只有三项要紧：`base_url`、`api_key`、`model`，任何 OpenAI 兼容接口都能用（智谱、硅基流动、阿里云百炼、火山方舟、DeepSeek 等，免费额度与注册方法见 `docs/教程章节-快速通道与免费模型.md`）。
+- 让 AI 助手代劳部署：把 `docs/给学员的Agent-安装指令.md` 发给它，它会向你索取 Key 并按低延迟标准部署验收。
+- **硬性纪律**：启用 fastlane 后，任何分拣进程只能处理 `escalated/`，不许再碰 `inbox/`——双前门会重复回复。
+
 ## 目录与契约
 
 ```
@@ -53,6 +68,7 @@ wxcrypto.py      CDN 媒体 AES 加解密与 aes_key 解析
 wxmedia.py       CDN 媒体下载解密 / 加密上传
 login.py         扫码登录，凭证落 state/credentials.json
 typing_ping.py   单次刷新「正在输入」指示器（供分拣流程调用）
+fastlane.py      快速通道（可选）：唯一前门认领 inbox/，快模型直答 + 复杂任务转 escalated/
 ```
 
 - 入站 `inbox/<ts>-<id>.json`：`{id, from_user_id, kind, text, ts}`；带媒体时多一个 `media_paths`（已解密落盘的本地文件绝对路径，存在 `media/<日期>/` 下）
@@ -84,6 +100,14 @@ sudo systemctl daemon-reload && sudo systemctl enable --now wechat-bridge
 
 - 凭证只存本地 `state/credentials.json`（0600），代码与日志里不出现 token 明文
 - `.gitignore` 已排除 `state/`、`logs/`、`media/`、各队列目录与 `config.json`——首次提交前请再人工确认一遍暂存区
+
+## 联系与答疑
+
+部署或使用中遇到问题，可以加作者微信咨询：**douyinxmg**
+
+加好友时请备注「微信桥」，方便第一时间通过并对上问题。教程购买、后续更新通知也通过这个微信。
+
+> 提醒：本项目为开源学习项目，微信答疑为作者个人业余支持，不承诺响应时效；紧急问题请先查 `docs/` 与本页「踩坑记录」。
 
 ## 致谢
 

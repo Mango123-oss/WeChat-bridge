@@ -1,0 +1,7 @@
+{
+  "provider": "openai",
+  "base_url": "https://open.bigmodel.cn/api/paas/v4",
+  "api_key": "把你的 API Key 填在这里",
+  "model": "glm-4.7-flash",
+  "fallback_model": ""
+}

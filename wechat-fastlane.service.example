@@ -1,0 +1,22 @@
+[Unit]
+Description=WeChat bridge fast lane (instant replies for simple messages)
+After=network-online.target wechat-bridge.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 改成你的部署目录
+WorkingDirectory=/home/your-user/wechat-bridge
+# 关键：BRIDGE_DIR 必须显式写明。fastlane 靠脚本所在目录定位队列，
+# 但显式声明可以避免 systemd 环境下 HOME=/root 时误认领到影子目录。
+Environment=BRIDGE_DIR=/home/your-user/wechat-bridge
+# 若部署环境必须走出境代理（国内模型接口一般不需要），再启用这一行：
+# EnvironmentFile=/home/your-user/wechat-bridge/proxy.env
+ExecStart=/usr/bin/python3 /home/your-user/wechat-bridge/fastlane.py
+Restart=always
+RestartSec=5
+StandardOutput=null
+StandardError=append:/home/your-user/wechat-bridge/logs/fastlane.log
+
+[Install]
+WantedBy=multi-user.target
