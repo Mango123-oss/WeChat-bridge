@@ -56,7 +56,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now wechat-fastlane
 ```
 
 - 配置只有三项要紧：`base_url`、`api_key`、`model`，任何 OpenAI 兼容接口都能用（智谱、硅基流动、阿里云百炼、火山方舟、DeepSeek 等，免费额度与注册方法见 `docs/教程章节-快速通道与免费模型.md`）。
-- 让 AI 助手代劳部署：把 `docs/给学员的Agent-安装指令.md` 发给它，它会向你索取 Key 并按低延迟标准部署验收。
+- 让 Muse 代劳部署：把 `docs/给Claude的部署指令.md` 发给它，它会向你索取 Key 并按低延迟标准部署验收（使用其他 AI 助手的看 `docs/给学员的Agent-安装指令.md`）。
 - **硬性纪律**：启用 fastlane 后，任何分拣进程只能处理 `escalated/`，不许再碰 `inbox/`——双前门会重复回复。
 
 ## 目录与契约
