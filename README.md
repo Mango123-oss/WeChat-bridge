@@ -90,7 +90,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now wechat-bridge
 - 助手不能主动发起会话：用户必须先发消息（context_token 机制）
 - 连续约 10 条不回复会被限流，用户回一句重置
 - 登录态约 30 天过期（错误码 -14），过期后重新扫码
-- 长轮询连接被网关周期性断开（RemoteDisconnected）是**正常现象**，daemon 自动重试；判健康只看三样：凭证存在、进程存活、无 session_expired 标记。详见 `docs/gateway-notes.md`
+- 长轮询连接被网关周期性断开（RemoteDisconnected）是**正常现象**，daemon 自动重试；判健康看三样：`state/cursor.txt` 最近几分钟有更新、daemon 保持 3 个线程（主线程＋收＋发；只剩 2 个是会话已死但进程还在的「假活」状态）、日志持续滚动——不要只看进程存活或 systemd 的 active。详见 `docs/gateway-notes.md`
 
 ## 踩坑记录
 
