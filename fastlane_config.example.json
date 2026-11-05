@@ -1,7 +1,8 @@
 {
+  "_comment": "api_key 两种写法：(1) 明文——直接填你的 API Key；(2) 保险库引用（推荐，明文不落盘）——填 \"VAULT:<connector-id>\"，例如 \"VAULT:custom.deepseek\"，发送请求时自动从本机 Muse 凭证库换取临时凭证注入。connector-id 是你在 Muse 里为该模型服务创建的连接器 id；用哪家就填哪家的连接器。base_url / model 要与 api_key 属于同一家服务。",
   "provider": "openai",
   "base_url": "https://open.bigmodel.cn/api/paas/v4",
-  "api_key": "把你的 API Key 填在这里",
+  "api_key": "把你的 API Key 填在这里，或填 VAULT:<connector-id>",
   "model": "glm-4.7-flash",
   "fallback_model": ""
 }

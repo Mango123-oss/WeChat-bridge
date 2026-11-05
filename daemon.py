@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -86,6 +87,31 @@ def chunk_text(text: str, size: int = CHUNK) -> list[str]:
         chunks.append(cur)
     return chunks
 
+# --- outbound throttle -------------------------------------------------------
+# A burst of a dozen messages in seconds got text delivery temporarily
+# banned by the gateway in the field. Every outbound message goes through
+# this gate: >=2s spacing, at most 10 per rolling minute.
+_SEND_TIMES: deque = deque()
+_SEND_LOCK = threading.Lock()
+
+
+def _outbound_throttle() -> None:
+    while True:
+        with _SEND_LOCK:
+            now = time.monotonic()
+            while _SEND_TIMES and now - _SEND_TIMES[0] >= 60:
+                _SEND_TIMES.popleft()
+            wait = 0.0
+            if _SEND_TIMES:
+                wait = max(wait, 2.0 - (now - _SEND_TIMES[-1]))
+            if len(_SEND_TIMES) >= 10:
+                wait = max(wait, 60.0 - (now - _SEND_TIMES[0]) + 0.1)
+            if wait <= 0:
+                _SEND_TIMES.append(now)
+                return
+        time.sleep(wait)
+
+
 
 class Bridge:
     def __init__(self) -> None:
@@ -101,6 +127,7 @@ class Bridge:
         self.tickets: dict = {}  # user_id -> typing_ticket (refreshed per session)
         self.typing_on: set[str] = set()
         self.recent: dict[tuple[str, str], float] = {}
+        self.send_attempts: dict[str, int] = {}  # outbox filename -> failed send count
         self.lock = threading.Lock()
 
     # -- helpers --
@@ -197,6 +224,19 @@ class Bridge:
             log.error("media forensics saved -> %s", raw_path)
         return paths
 
+    def send_msg(self, user_id: str, ct: str, msg) -> None:
+        """Single choke point for outbound messages: throttled, so a burst
+        (or a retry loop) can never trip the gateway's delivery ban."""
+        _outbound_throttle()
+        ilink.send_message(self.base_url, self.token, msg)
+
+    def _note_send_failure(self, path: Path) -> bool:
+        """Count one failed send for an outbox job. Returns True once the
+        single allowed retry is used up; the caller then drops the job."""
+        n = self.send_attempts.get(path.name, 0) + 1
+        self.send_attempts[path.name] = n
+        return n >= 2
+
     def send_media(self, user_id: str, ct: str, media_file: Path, caption: str) -> None:
         """Upload-then-send one media file with an optional caption.
 
@@ -211,12 +251,9 @@ class Bridge:
             self.base_url, self.token, user_id, data, item_type)
         ref = {"encrypt_query_param": param, "aes_key": key_b64, "encrypt_type": 1}
         for chunk in chunk_text(caption) if caption else []:
-            ilink.send_message(self.base_url, self.token,
-                               ilink.build_text_message(user_id, ct, chunk))
-        ilink.send_message(self.base_url, self.token,
-                           ilink.build_media_message(user_id, ct, item_type, ref,
-                                                     cipher_size, media_file.name,
-                                                     len(data)))
+            self.send_msg(user_id, ct, ilink.build_text_message(user_id, ct, chunk))
+        self.send_msg(user_id, ct, ilink.build_media_message(
+            user_id, ct, item_type, ref, cipher_size, media_file.name, len(data)))
 
     def session_dead(self, where: str) -> None:
         log.error("SESSION EXPIRED at %s — flagging and exiting clean", where)
@@ -296,9 +333,10 @@ class Bridge:
                             self.send_media(user_id, ct, media_file, text)
                         else:
                             for chunk in chunk_text(text):
-                                ilink.send_message(self.base_url, self.token,
-                                                   ilink.build_text_message(user_id, ct, chunk))
+                                self.send_msg(user_id, ct,
+                                              ilink.build_text_message(user_id, ct, chunk))
                         path.unlink()
+                        self.send_attempts.pop(path.name, None)
                         log.info("outbox -> %s (%d chars%s) sent", user_id, len(text),
                                  " + media" if media_file is not None else "")
                     except ValueError as e:
@@ -307,15 +345,28 @@ class Bridge:
                     except ApiError as e:
                         if e.is_session_expired:
                             self.session_dead("send")
-                        log.error("send failed, keep queued: %s", e)
-                        time.sleep(5)
+                        if self._note_send_failure(path):
+                            log.error("send failed twice, drop job %s: %s", path.name, e)
+                            path.unlink(missing_ok=True)
+                            self.send_attempts.pop(path.name, None)
+                        else:
+                            log.error("send failed, keep queued for one retry: %s", e)
+                            time.sleep(5)
+                    except Exception as e:
+                        if self._note_send_failure(path):
+                            log.error("send error twice, drop job %s: %r", path.name, e)
+                            path.unlink(missing_ok=True)
+                            self.send_attempts.pop(path.name, None)
+                        else:
+                            log.error("send error, keep queued for one retry: %r", e)
+                            time.sleep(5)
                     finally:
                         if user_id in self.typing_on:
                             self.typing_on.discard(user_id)
                             self.typing(user_id, False)
             except Exception as e:
                 log.error("outbox loop error: %r", e)
-            time.sleep(2)
+            time.sleep(0.5)
 
     def run(self) -> None:
         for d in (INBOX, OUTBOX, FLAGS, LOGS, MEDIA):

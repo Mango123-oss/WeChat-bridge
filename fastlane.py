@@ -18,8 +18,11 @@ Brain configuration (fastlane_config.json in this directory, chmod 600):
       "fallback_model": ""
     }
 Any OpenAI-compatible endpoint works (Zhipu, SiliconFlow, Bailian, Ark,
-DeepSeek, ...). Without a config file the fast lane stays inert: every
-message is escalated to the main agent until a fast model is configured.
+DeepSeek, ...). The api_key may also be "VAULT:<connector-id>", resolved
+at call time to a short-lived credential from the local Muse credential
+store so no plaintext key is kept on disk. Without a config file the fast
+lane stays inert: every message is escalated to the main agent until a
+fast model is configured.
 
 BRIDGE_DIR: env override, else the directory containing this script
 (never Path.home(): under systemd HOME is /root).
@@ -33,6 +36,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -205,13 +209,29 @@ def _openai_body(cfg, history, text):
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
+
+def _resolve_api_key(raw):
+    """api_key is either a literal key or "VAULT:<connector-id>".
+
+    The VAULT form keeps plaintext out of the config file: at call time the
+    key is swapped for a short-lived surrogate from the local Muse
+    credential store (the same mechanism the built-in providers use), so the
+    real key never sits on disk.
+    """
+    if isinstance(raw, str) and raw.startswith("VAULT:"):
+        sys.path.insert(0, "/opt/muse/skills/custom-connector-setup/bin")
+        from dynamic_credentials import dynamic_credential_entry
+        entry = dynamic_credential_entry(raw[len("VAULT:"):], "access_token")
+        return str(entry["surrogate"]).strip()
+    return raw
+
 def _call_openai(cfg, history, text, model_override=None):
     cfg = dict(cfg)
     if model_override:
         cfg["model"] = model_override
     url = cfg["base_url"].rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json",
-               "Authorization": f"Bearer {cfg['api_key']}"}
+               "Authorization": f"Bearer {_resolve_api_key(cfg.get('api_key', ''))}"}
     data = _post_json(url, headers, _openai_body(cfg, history, text))
     choice = data["choices"][0]
     if choice.get("finish_reason") == "length":
@@ -244,7 +264,31 @@ def ask_brain(cfg, history, text):
 
 # --- front door ------------------------------------------------------------------
 
+
+# --- outbound throttle -------------------------------------------------------
+# iLink temporarily banned text delivery in the field after a burst of a
+# dozen messages in seconds. Space out everything this process queues for
+# the daemon: >=2s between messages, at most 10 per rolling minute.
+_SEND_TIMES = deque()
+
+
+def _throttle_outbound():
+    while True:
+        now = time.monotonic()
+        while _SEND_TIMES and now - _SEND_TIMES[0] >= 60:
+            _SEND_TIMES.popleft()
+        wait = 0.0
+        if _SEND_TIMES:
+            wait = max(wait, 2.0 - (now - _SEND_TIMES[-1]))
+        if len(_SEND_TIMES) >= 10:
+            wait = max(wait, 60.0 - (now - _SEND_TIMES[0]) + 0.1)
+        if wait <= 0:
+            _SEND_TIMES.append(now)
+            return
+        time.sleep(wait)
+
 def write_outbox(user_id, text):
+    _throttle_outbound()
     OUTBOX.mkdir(parents=True, exist_ok=True)
     name = f"fastlane-{uuid.uuid4().hex[:12]}.json"
     save_json(OUTBOX / name, {"to_user_id": user_id, "text": text})
